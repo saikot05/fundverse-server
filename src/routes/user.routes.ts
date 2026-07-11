@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticateUser, authorizeRoles, AuthRequest } from '../middleware/auth';
 import { User } from '../modules/users/user.model';
+import { USER_ROLES } from '../config/constants';
 
 const router = Router();
 
@@ -28,8 +29,8 @@ router.patch(
     try {
       const { role } = req.body;
 
-      if (!role || !['supporter', 'creator', 'admin'].includes(role)) {
-        res.status(400).json({ message: 'Invalid role. Must be supporter, creator, or admin.' });
+      if (!role || !(USER_ROLES as readonly string[]).includes(role)) {
+        res.status(400).json({ message: `Invalid role. Must be one of: ${USER_ROLES.join(', ')}` });
         return;
       }
 
