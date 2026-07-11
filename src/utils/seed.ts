@@ -2,8 +2,10 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { User } from '../modules/users/user.model';
 import dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config();
+dotenv.config({ path: path.join(process.cwd(), '../fundverse-client/.env.local') });
 
 const seed = async () => {
   try {

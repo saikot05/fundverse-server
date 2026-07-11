@@ -16,8 +16,11 @@ import notificationRoutes from './routes/notification.routes';
 import reportRoutes from './routes/report.routes';
 import statsRoutes from './routes/stats.routes';
 
+import path from 'path';
+
 // Load environment variables
 dotenv.config();
+dotenv.config({ path: path.join(process.cwd(), '../fundverse-client/.env.local') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
