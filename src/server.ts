@@ -17,8 +17,6 @@ import reportRoutes from './routes/report.routes';
 import statsRoutes from './routes/stats.routes';
 
 import path from 'path';
-import { toNodeHandler } from 'better-auth/node';
-import { auth } from './config/auth';
 
 // Load environment variables
 dotenv.config();
@@ -40,15 +38,6 @@ app.use(
   })
 );
 app.use(requestLogger);
-
-// Mount BetterAuth handler before express.json to prevent body parsing clashes
-app.all('/api/auth/*', (req, res, next) => {
-  const customEndpoints = ['/api/auth/login', '/api/auth/register', '/api/auth/me', '/api/auth/logout'];
-  if (customEndpoints.includes(req.path)) {
-    return next();
-  }
-  return toNodeHandler(auth)(req, res);
-});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
