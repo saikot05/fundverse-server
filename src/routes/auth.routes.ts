@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../modules/users/user.model';
 import { authenticateUser, AuthRequest } from '../middleware/auth';
+import { isValidEmail, isValidPassword, cleanInput } from '../utils/validation';
 
 const router = Router();
 
@@ -18,6 +19,18 @@ router.post('/register', async (req: any, res: Response): Promise<void> => {
       return;
     }
 
+    if (!isValidEmail(email)) {
+      res.status(400).json({ message: 'Please provide a valid email address.' });
+      return;
+    }
+
+    if (!isValidPassword(password)) {
+      res.status(400).json({ message: 'Password must be at least 6 characters.' });
+      return;
+    }
+
+    const sanitizedName = cleanInput(name);
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       res.status(400).json({ message: 'User with this email already exists.' });
@@ -27,7 +40,7 @@ router.post('/register', async (req: any, res: Response): Promise<void> => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = await User.create({
-      name,
+      name: sanitizedName,
       email,
       password: hashedPassword,
       role: role || 'supporter',
