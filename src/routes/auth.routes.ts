@@ -45,7 +45,7 @@ router.post('/register', async (req: any, res: Response): Promise<void> => {
       password: hashedPassword,
       role: role || 'supporter',
       image: image || '',
-      credits: 0,
+      credits: role === 'creator' ? 20 : 50,
     });
 
     const token = jwt.sign(
