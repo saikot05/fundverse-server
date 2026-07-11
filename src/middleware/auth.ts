@@ -28,25 +28,56 @@ export const authenticateUser = async (
       token = req.cookies.token;
     }
 
+    // Fallback to BetterAuth session cookie
+    const betterAuthCookie = req.cookies?.['better-auth.session_token'] || req.cookies?.['better-auth.session-token'];
+
+    if (!token || token === 'better-auth-session') {
+      if (betterAuthCookie) {
+        token = betterAuthCookie;
+      }
+    }
+
     if (!token) {
       res.status(401).json({ message: 'Access denied. No token provided.' });
       return;
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fundverse_super_secret_jwt_key_9876543210') as {
-      id: string;
-      email: string;
-      role: string;
-    };
+    // Try verifying as JWT
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fundverse_super_secret_jwt_key_9876543210') as {
+        id: string;
+        email: string;
+        role: string;
+      };
 
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      res.status(401).json({ message: 'Access denied. User not found.' });
-      return;
+      const user = await User.findById(decoded.id);
+      if (!user) {
+        res.status(401).json({ message: 'Access denied. User not found.' });
+        return;
+      }
+
+      req.user = user;
+      return next();
+    } catch (jwtErr) {
+      // If JWT verification fails, fallback to verifying BetterAuth session in MongoDB
+      const mongoose = require('mongoose');
+      const sessionDoc = await mongoose.connection.db?.collection('sessions').findOne({
+        sessionToken: token
+      });
+
+      if (sessionDoc) {
+        // Check session expiration
+        if (new Date(sessionDoc.expiresAt) > new Date()) {
+          const user = await User.findById(sessionDoc.userId);
+          if (user) {
+            req.user = user;
+            return next();
+          }
+        }
+      }
+
+      res.status(401).json({ message: 'Invalid or expired token.' });
     }
-
-    req.user = user;
-    next();
   } catch (error) {
     res.status(401).json({ message: 'Invalid or expired token.' });
   }
