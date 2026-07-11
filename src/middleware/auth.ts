@@ -6,6 +6,11 @@ export interface AuthRequest extends Request {
   user?: IUser;
 }
 
+/**
+ * authenticateUser middleware
+ * Extracts JWT token from the Authorization header or cookies, verifies validity,
+ * fetches the corresponding User document from MongoDB, and attaches it to req.user.
+ */
 export const authenticateUser = async (
   req: AuthRequest,
   res: Response,
@@ -47,6 +52,11 @@ export const authenticateUser = async (
   }
 };
 
+/**
+ * authorizeRoles middleware
+ * Restricts access to endpoints based on the authenticated user's role.
+ * @param roles Array of authorized roles: 'supporter' | 'creator' | 'admin'
+ */
 export const authorizeRoles = (...roles: ('supporter' | 'creator' | 'admin')[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
