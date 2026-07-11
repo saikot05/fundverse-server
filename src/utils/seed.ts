@@ -11,7 +11,7 @@ const seed = async () => {
   try {
     const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/fundverse';
     await mongoose.connect(mongoUri, {
-      dbName: 'fundverse',
+      dbName: process.env.MONGODB_DB_NAME || 'fundverse',
     });
     console.log('Seeding database...');
 
