@@ -10,7 +10,9 @@ dotenv.config({ path: path.join(process.cwd(), '../fundverse-client/.env.local')
 const seed = async () => {
   try {
     const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/fundverse';
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(mongoUri, {
+      dbName: 'fundverse',
+    });
     console.log('Seeding database...');
 
     // Clear existing admin user
