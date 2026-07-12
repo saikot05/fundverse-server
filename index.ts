@@ -2,8 +2,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 // Load environment variables immediately before other imports
-dotenv.config();
-dotenv.config({ path: path.join(process.cwd(), '../fundverse-client/.env.local') });
+dotenv.config({ path: path.join(__dirname, '.env') });
+dotenv.config({ path: path.join(__dirname, '../fundverse-client/.env.local') });
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';

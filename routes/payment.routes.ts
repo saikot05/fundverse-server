@@ -6,33 +6,42 @@ import { User } from '../modules/users/user.model';
 import { Notification } from '../modules/notifications/notification.model';
 
 const router = Router();
-const stripeSecret = process.env.STRIPE_SECRET_KEY || 'sk_test_51Pabcdefghijklmnopqrstuvwxyz123456789';
-const stripe = new Stripe(stripeSecret, {
-  apiVersion: '2024-12-18.accredited' as any,
-});
 
-// Create Stripe Payment Intent (Supporter)
+// Lazy Stripe initialization — avoids reading env before dotenv.config() runs
+let _stripe: Stripe | null = null;
+function getStripe(): Stripe {
+  if (!_stripe) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error('STRIPE_SECRET_KEY is not configured in environment variables.');
+    _stripe = new Stripe(key, { apiVersion: '2023-10-16' as any });
+  }
+  return _stripe;
+}
+
+// ─── 1. Create Payment Intent (Supporter) ────────────────────────────────────
 router.post(
-  '/create-payment-intent',
+  '/create-checkout-session',
   authenticateUser,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      const { amount } = req.body; // Amount in USD cents/dollars. Let's assume amount in Dollars (e.g. 10 = $10)
+      const { amount, credits } = req.body;
 
       if (!amount || amount <= 0) {
         res.status(400).json({ message: 'Invalid payment amount.' });
         return;
       }
 
-      // Convert to cents for Stripe
+      const creditsToReward = credits || amount;
       const amountInCents = Math.round(amount * 100);
 
-      const paymentIntent = await stripe.paymentIntents.create({
+      const paymentIntent = await getStripe().paymentIntents.create({
         amount: amountInCents,
         currency: 'usd',
+        automatic_payment_methods: { enabled: true },
         metadata: {
           userId: req.user!._id.toString(),
-          credits: amount.toString(),
+          credits: creditsToReward.toString(),
+          amount: amount.toString(),
         },
       });
 
@@ -40,96 +49,102 @@ router.post(
       await Payment.create({
         userId: req.user!._id,
         amount,
-        creditsPurchased: amount, // 1 dollar = 1 credit ratio
+        creditsPurchased: creditsToReward,
         stripePaymentIntentId: paymentIntent.id,
         status: 'pending',
       });
 
       res.status(200).json({
         clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
+        sessionId: paymentIntent.id, // reuse key name for client compatibility
       });
     } catch (error: any) {
-      console.error('Stripe Error:', error.message);
+      console.error('Stripe PaymentIntent Error:', error.message);
       res.status(500).json({ message: 'Failed to create payment intent.', error: error.message });
     }
   }
 );
 
-// Verify Stripe Payment & Add Credits (Supporter)
-router.post(
-  '/verify',
+// ─── 2. Session Status & Credit Fulfillment ───────────────────────────────────
+router.get(
+  '/session-status',
   authenticateUser,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      const { paymentIntentId } = req.body;
+      const { session_id } = req.query;
 
-      if (!paymentIntentId) {
-        res.status(400).json({ message: 'Payment Intent ID is required.' });
+      if (!session_id || typeof session_id !== 'string') {
+        res.status(400).json({ message: 'session_id query param is required.' });
         return;
       }
 
-      // Retrieve from Stripe
-      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const pi = await getStripe().paymentIntents.retrieve(session_id);
 
-      if (paymentIntent.status !== 'succeeded') {
-        res.status(400).json({ message: `Payment failed. Current status: ${paymentIntent.status}` });
-        return;
-      }
+      if (pi.status === 'succeeded') {
+        // Check if payment was already fulfilled
+        const existingPayment = await Payment.findOne({ stripePaymentIntentId: session_id });
 
-      // Check if payment was already processed
-      const existingPayment = await Payment.findOne({ stripePaymentIntentId: paymentIntentId });
-      
-      if (existingPayment && existingPayment.status === 'succeeded') {
+        if (existingPayment && existingPayment.status === 'succeeded') {
+          const user = await User.findById(req.user!._id);
+          res.status(200).json({
+            status: 'complete',
+            payment_status: 'paid',
+            credits: user?.credits ?? req.user!.credits,
+            already_processed: true,
+          });
+          return;
+        }
+
+        const creditsToReward = parseFloat(pi.metadata?.credits ?? '0');
+
+        // Mark payment record as succeeded
+        if (existingPayment) {
+          existingPayment.status = 'succeeded';
+          await existingPayment.save();
+        } else {
+          await Payment.create({
+            userId: req.user!._id,
+            amount: parseFloat(pi.metadata?.amount ?? '0'),
+            creditsPurchased: creditsToReward,
+            stripePaymentIntentId: session_id,
+            status: 'succeeded',
+          });
+        }
+
+        // Add credits to user wallet
+        const user = await User.findById(req.user!._id);
+        if (user) {
+          user.credits += creditsToReward;
+          await user.save();
+        }
+
+        // Notify user
+        await Notification.create({
+          userId: req.user!._id,
+          title: 'Credits Purchased! 🎉',
+          message: `${creditsToReward} credits have been added to your wallet.`,
+        });
+
         res.status(200).json({
-          message: 'Payment already verified.',
+          status: 'complete',
+          payment_status: 'paid',
+          credits: user?.credits ?? req.user!.credits,
+        });
+      } else {
+        res.status(200).json({
+          status: pi.status === 'canceled' ? 'expired' : 'open',
+          payment_status: pi.status,
           credits: req.user!.credits,
         });
-        return;
       }
-
-      const creditsToReward = parseFloat(paymentIntent.metadata.credits) || 0;
-
-      if (existingPayment) {
-        existingPayment.status = 'succeeded';
-        await existingPayment.save();
-      } else {
-        // Fallback create if not exists
-        await Payment.create({
-          userId: req.user!._id,
-          amount: creditsToReward,
-          creditsPurchased: creditsToReward,
-          stripePaymentIntentId: paymentIntentId,
-          status: 'succeeded',
-        });
-      }
-
-      // Add credits to user wallet
-      const user = await User.findById(req.user!._id);
-      if (user) {
-        user.credits += creditsToReward;
-        await user.save();
-      }
-
-      // Create notification
-      await Notification.create({
-        userId: req.user!._id,
-        title: 'Credits Purchased',
-        message: `Successfully purchased and added ${creditsToReward} credits to your account.`,
-      });
-
-      res.status(200).json({
-        message: 'Payment verified and credits added successfully.',
-        credits: user ? user.credits : req.user!.credits,
-      });
     } catch (error: any) {
-      console.error('Verify Error:', error.message);
-      res.status(500).json({ message: 'Failed to verify payment.', error: error.message });
+      console.error('Session Status Error:', error.message);
+      res.status(500).json({ message: 'Failed to retrieve session status.', error: error.message });
     }
   }
 );
 
-// Get User's Payments History (Supporter / Admin)
+// ─── 3. Payment History ───────────────────────────────────────────────────────
 router.get(
   '/history',
   authenticateUser,

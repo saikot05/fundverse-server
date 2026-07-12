@@ -6,12 +6,16 @@ export interface AuthRequest extends Request {
   user?: IUser;
 }
 
-const CLIENT_URL = process.env.CLIENT_URL;
-
-// Initialize remote JWKS set targeting the Next.js auth public keys endpoint
-const remoteJWKS = createRemoteJWKSet(
-  new URL(`${CLIENT_URL}/api/auth/jwks`)
-);
+// Lazy remote JWKS initializer
+let remoteJWKS: any = null;
+function getRemoteJWKS(clientUrl: string) {
+  if (!remoteJWKS) {
+    remoteJWKS = createRemoteJWKSet(
+      new URL(`${clientUrl}/api/auth/jwks`)
+    );
+  }
+  return remoteJWKS;
+}
 
 /**
  * authenticateUser middleware
@@ -24,8 +28,10 @@ export const authenticateUser = async (
   next: NextFunction
 ): Promise<void> => {
   try {
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+
     // 1. Try session validation against remote Next.js Better Auth server
-    const sessionRes = await fetch(`${CLIENT_URL}/api/auth/get-session`, {
+    const sessionRes = await fetch(`${clientUrl}/api/auth/get-session`, {
       headers: {
         cookie: req.headers.cookie || '',
         authorization: req.headers.authorization || '',
@@ -57,9 +63,10 @@ export const authenticateUser = async (
     }
 
     try {
-      const { payload } = await jwtVerify(token, remoteJWKS, {
-        issuer: CLIENT_URL,
-        audience: CLIENT_URL,
+      const jwks = getRemoteJWKS(clientUrl);
+      const { payload } = await jwtVerify(token, jwks, {
+        issuer: clientUrl,
+        audience: clientUrl,
       });
 
       const userId = payload.sub || (payload.user as any)?.id || payload.id;
