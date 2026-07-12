@@ -83,6 +83,17 @@ router.get('/', async (req: any, res: Response): Promise<void> => {
       query.category = req.query.category;
     }
 
+    // Goal Range filter
+    if (req.query.goalRange) {
+      if (req.query.goalRange === 'under5k') {
+        query.targetAmount = { $lt: 5000 };
+      } else if (req.query.goalRange === '5kt10k') {
+        query.targetAmount = { $gte: 5000, $lte: 10000 };
+      } else if (req.query.goalRange === 'over10k') {
+        query.targetAmount = { $gt: 10000 };
+      }
+    }
+
     // Status filter
     if (req.query.status) {
       query.status = req.query.status;

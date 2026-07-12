@@ -1,15 +1,22 @@
 import { Response, NextFunction, Request } from 'express';
-import jwt from 'jsonwebtoken';
 import { User, IUser } from '../modules/users/user.model';
+import { jwtVerify, createRemoteJWKSet } from 'jose-cjs';
 
 export interface AuthRequest extends Request {
   user?: IUser;
 }
 
+const CLIENT_URL = process.env.CLIENT_URL;
+
+// Initialize remote JWKS set targeting the Next.js auth public keys endpoint
+const remoteJWKS = createRemoteJWKSet(
+  new URL(`${CLIENT_URL}/api/auth/jwks`)
+);
+
 /**
  * authenticateUser middleware
- * Extracts JWT token from the Authorization header or cookies, verifies validity,
- * fetches the corresponding User document from MongoDB, and attaches it to req.user.
+ * Extracts JWT token from the Authorization header/cookies or checks the active session,
+ * validates it remotely against Better Auth Next.js server, and attaches the User document to req.user.
  */
 export const authenticateUser = async (
   req: AuthRequest,
@@ -17,24 +24,31 @@ export const authenticateUser = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    let token = '';
+    // 1. Try session validation against remote Next.js Better Auth server
+    const sessionRes = await fetch(`${CLIENT_URL}/api/auth/get-session`, {
+      headers: {
+        cookie: req.headers.cookie || '',
+        authorization: req.headers.authorization || '',
+      },
+    }).catch(() => null);
 
-    // Check Authorization header
-    if (req.headers.authorization?.startsWith('Bearer ')) {
-      token = req.headers.authorization.split(' ')[1];
-    } 
-    // Check cookies
-    else if (req.cookies?.token) {
-      token = req.cookies.token;
+    if (sessionRes && sessionRes.ok) {
+      const session = await sessionRes.json().catch(() => null) as any;
+      if (session && session.user) {
+        const user = await User.findById(session.user.id);
+        if (user) {
+          req.user = user;
+          return next();
+        }
+      }
     }
 
-    // Fallback to BetterAuth session cookie
-    const betterAuthCookie = req.cookies?.['better-auth.session_token'] || req.cookies?.['better-auth.session-token'];
-
-    if (!token || token === 'better-auth-session') {
-      if (betterAuthCookie) {
-        token = betterAuthCookie;
-      }
+    // 2. Fall back to JWT Bearer token remote JWKS validation
+    let token = '';
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies?.token) {
+      token = req.cookies.token;
     }
 
     if (!token) {
@@ -42,15 +56,15 @@ export const authenticateUser = async (
       return;
     }
 
-    // Try verifying as JWT
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fundverse_super_secret_jwt_key_9876543210') as {
-        id: string;
-        email: string;
-        role: string;
-      };
+      const { payload } = await jwtVerify(token, remoteJWKS, {
+        issuer: CLIENT_URL,
+        audience: CLIENT_URL,
+      });
 
-      const user = await User.findById(decoded.id);
+      const userId = payload.sub || (payload.user as any)?.id || payload.id;
+      
+      const user = await User.findById(userId);
       if (!user) {
         res.status(401).json({ message: 'Access denied. User not found.' });
         return;
@@ -59,27 +73,10 @@ export const authenticateUser = async (
       req.user = user;
       return next();
     } catch (jwtErr) {
-      // If JWT verification fails, fallback to verifying BetterAuth session in MongoDB
-      const mongoose = require('mongoose');
-      const sessionDoc = await mongoose.connection.db?.collection('sessions').findOne({
-        sessionToken: token
-      });
-
-      if (sessionDoc) {
-        // Check session expiration
-        if (new Date(sessionDoc.expiresAt) > new Date()) {
-          const user = await User.findById(sessionDoc.userId);
-          if (user) {
-            req.user = user;
-            return next();
-          }
-        }
-      }
-
       res.status(401).json({ message: 'Invalid or expired token.' });
     }
   } catch (error) {
-    res.status(401).json({ message: 'Invalid or expired token.' });
+    res.status(401).json({ message: 'Authentication error.' });
   }
 };
 
