@@ -17,18 +17,18 @@ function getRemoteJWKS(clientUrl: string) {
   return remoteJWKS;
 }
 
-/**
- * authenticateUser middleware
- * Extracts JWT token from the Authorization header/cookies or checks the active session,
- * validates it remotely against Better Auth Next.js server, and attaches the User document to req.user.
- */
+
 export const authenticateUser = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const clientUrl = process.env.CLIENT_URL;
+    if (!clientUrl) {
+      res.status(500).json({ message: 'Internal server error: CLIENT_URL configuration missing.' });
+      return;
+    }
 
     // 1. Try session validation against remote Next.js Better Auth server
     const sessionRes = await fetch(`${clientUrl}/api/auth/get-session`, {
@@ -87,11 +87,7 @@ export const authenticateUser = async (
   }
 };
 
-/**
- * authorizeRoles middleware
- * Restricts access to endpoints based on the authenticated user's role.
- * @param roles Array of authorized roles: 'supporter' | 'creator' | 'admin'
- */
+
 export const authorizeRoles = (...roles: ('supporter' | 'creator' | 'admin')[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
