@@ -45,10 +45,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// Welcome Root Handler
+app.get('/', (req: Request, res: Response) => {
+  res.status(200).json({ message: 'Welcome to FundVerse Backend API!' });
+});
+
 // Health Check
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'OK', message: 'FunVerse API is running smoothly.' });
 });
+
 
 // Register Routes
 app.use('/api/users', userRoutes);
