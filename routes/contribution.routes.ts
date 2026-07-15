@@ -132,4 +132,28 @@ router.get(
   }
 );
 
+// Get all contributions made to campaigns created by the active Creator
+router.get(
+  '/creator',
+  authenticateUser,
+  authorizeRoles('creator', 'admin'),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      // Find all campaigns of this creator
+      const campaigns = await Campaign.find({ creatorId: req.user!._id });
+      const campaignIds = campaigns.map(c => c._id);
+
+      // Find all contributions for these campaigns
+      const contributions = await Contribution.find({ campaignId: { $in: campaignIds } })
+        .populate('campaignId', 'title image category')
+        .populate('supporterId', 'name email image')
+        .sort({ createdAt: -1 });
+
+      res.status(200).json({ contributions });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    }
+  }
+);
+
 export default router;
