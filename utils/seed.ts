@@ -30,7 +30,7 @@ const seed = async () => {
     // ─── Admin User ───────────────────────────────────────────────────────────
     await User.deleteMany({ email: 'admin@fundverse.io' });
     const hashedAdmin = await bcrypt.hash('admin123', 10);
-    await User.create({
+    const admin = await User.create({
       name: 'System Admin',
       email: 'admin@fundverse.io',
       password: hashedAdmin,
@@ -56,7 +56,7 @@ const seed = async () => {
     // ─── Demo Supporter ───────────────────────────────────────────────────────
     await User.deleteMany({ email: 'supporter@fundverse.io' });
     const hashedSupporter = await bcrypt.hash('supporter123', 10);
-    await User.create({
+    const supporter = await User.create({
       name: 'Demo Supporter',
       email: 'supporter@fundverse.io',
       password: hashedSupporter,
@@ -65,6 +65,44 @@ const seed = async () => {
       image: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Supporter',
     });
     console.log('✓ Demo supporter created (supporter@fundverse.io / supporter123)');
+
+    // ─── Better Auth Accounts ──────────────────────────────────────────────────
+    const rawDb = mongoose.connection.db;
+    if (!rawDb) {
+      throw new Error('Database connection not established.');
+    }
+    const userIds = [admin._id.toString(), creator._id.toString(), supporter._id.toString()];
+    await rawDb.collection('accounts').deleteMany({
+      userId: { $in: userIds }
+    });
+    const now = new Date();
+    await rawDb.collection('accounts').insertMany([
+      {
+        accountId: admin._id.toString(),
+        providerId: 'credential',
+        userId: admin._id.toString(),
+        password: '466eb2d07312bce07da97a4da9a5f3e4:6737269696a6b06db9fbe51e3766859d6c661f7ad8a05f0a10f087c08f266754ad36516e98b42b6ca0871f763446d6aaf7ce3a038669cfd1eaa94cae17ad3a90',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        accountId: creator._id.toString(),
+        providerId: 'credential',
+        userId: creator._id.toString(),
+        password: '4f2748517013417fe73933b371977080:9590adc0956eeb26c67b89e42f3097e86ef85dc3e8d4d9f486bddf411b64049a0eb9cfab38d4e8ec522c71bb4d49e653189b605fd7ca526106029944c3378640',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        accountId: supporter._id.toString(),
+        providerId: 'credential',
+        userId: supporter._id.toString(),
+        password: '70364ff8a9343ae2a15181d671ec03dc:f475320e1cac56db26e5831ab8d8a15c4bf4ea98382e618c0005f73270b7ba494585c6196525623f747d76221ecec04a2ab031850e76f23baffd990cb76a0809',
+        createdAt: now,
+        updatedAt: now
+      }
+    ]);
+    console.log('✓ Better Auth accounts seeded for admin, creator, and supporter');
 
     // ─── Sample Campaigns ─────────────────────────────────────────────────────
     await Campaign.deleteMany({ creatorId: creator._id });
